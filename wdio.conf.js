@@ -11,11 +11,12 @@ export const config = {
     baseUrl: 'https://tienda-qa.pages.dev',
     capabilities: [{
         browserName: 'chrome',
-        browserVersion: '154.0.8037.98',
         'wdio:enforceWebDriverClassic': true,
         'goog:chromeOptions': {
             binary: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-            args: ['--start-maximized', '--disable-extensions']
+            args: process.env.CI
+                ? ['--headless=new', '--window-size=1920,1080', '--disable-extensions']
+                : ['--start-maximized', '--disable-extensions']
         }
     }],
     logLevel: 'error',

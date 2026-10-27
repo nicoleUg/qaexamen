@@ -1,66 +1,45 @@
-Segunda Pipeline
-
 pipeline {
     agent any
-
-    environment {
-        // Carpeta absoluta para resultados y reportes
-        ALLURE_RESULTS = "${env.WORKSPACE}/allure-results"
-        ALLURE_REPORT  = "${env.WORKSPACE}/allure-report"
-    }
-
+    tools { nodejs 'NodeJS'; jdk 'Java21' }
+    options { skipDefaultCheckout(true); disableConcurrentBuilds(); timeout(time: 20, unit: 'MINUTES') }
+    environment { CI = 'true' }
     stages {
-        stage('Preparar Workspace') {
+        stage('Preparar y obtener codigo') {
             steps {
-                echo "Limpiando workspace..."
-                deleteDir()
+                cleanWs()
+                checkout scm
+                // No mezclar resultados guardados en Git con los de esta ejecucion.
+                dir('allure-results') { deleteDir() }
+                dir('allure-report') { deleteDir() }
             }
         }
-
-        stage('Checkout') {
+        stage('Comprobar herramientas') {
             steps {
-                git branch: 'main', url: 'https://github.com/nicoleUg/qaexamen.git'
+                bat 'node --version'
+                bat 'call npm.cmd --version'
+                bat 'java -version'
             }
         }
-
         stage('Instalar dependencias') {
-            steps {
-                bat 'npm install'
-            }
+            steps { bat 'call npm.cmd ci --no-audit --no-fund' }
         }
-
-        stage('Ejecutar WDIO') {
-            steps {
-                echo "Ejecutando pruebas WDIO..."
-                bat "npx wdio run wdio.conf.js"
-            }
-        }
-
-        stage('Generar reporte Allure') {
-            steps {
-                echo "Generando reporte Allure..."
-                bat """
-                npx allure generate %ALLURE_RESULTS% --clean -o %ALLURE_REPORT%
-                """
-            }
-        }
-
-        stage('Publicar reporte Allure en Jenkins') {
-            steps {
-                echo "Publicando reporte Allure usando el plugin..."
-                allure([
-                    includeProperties: false,
-                    jdk: '',
-                    results: [[path: '**/allure-results/*.json']], // <-- patrón agregado
-                    reportBuildPolicy: 'ALWAYS'
-                ])
-            }
+        stage('Ejecutar pruebas de Tienda QA') {
+            steps { bat 'call npm.cmd test' }
         }
     }
-
     post {
         always {
-            echo 'Pipeline finalizada'
+            script {
+                if (fileExists('allure-results')) {
+                    bat 'powershell.exe -NoProfile -NonInteractive -Command "if (@(Get-ChildItem allure-results/*-result.json -ErrorAction SilentlyContinue).Count -eq 0) { throw \'No se generaron resultados de pruebas Allure\' }"'
+                    allure commandline: 'Allure-2.35.1', jdk: 'Java21', includeProperties: false, results: [[path: 'allure-results']], reportBuildPolicy: 'ALWAYS'
+                    archiveArtifacts artifacts: 'allure-results/**', allowEmptyArchive: false
+                } else {
+                    echo 'No hay resultados Allure; revisar el error de preparacion en la consola.'
+                }
+            }
         }
+        success { echo 'Pruebas completadas. Abrir Allure Report en este build.' }
+        failure { echo 'La ejecucion fallo. Consultar consola y reporte Allure si esta disponible.' }
     }
 }
